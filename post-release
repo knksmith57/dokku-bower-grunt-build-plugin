@@ -1,24 +1,69 @@
-#!/bin/bash
-
+#!/usr/bin/env bash
+set -eo pipefail; [[ $DOKKU_TRACE ]] && set -x
 APP="$1"; IMAGE="dokku/$APP"
+
 echo "-----> Building Node app ..."
 COMMAND=$(cat <<EOF
-cd "/app" &&
-new_path="\$(find / -name npm | tail -1 | xargs -I % sh -c "dirname %")" &&
-PATH="\$PATH:\$new_path" &&
-PATH="\$PATH:\$(npm bin)" &&
-npm install grunt &&
-npm install grunt-cli &&
-npm install bower &&
-npm update &&
-bower --allow-root install &&
-bower --allow-root update &&
-grunt build --force
+PATH=$PATH:/app/vendor/node/bin &&
+cd /app &&
+
+sleep 1
+
+echo '-----> Checking for Bower deps'
+if [ -f "./bower.json" ]
+then
+  echo '       bower.json exists, handling deps...'
+
+  if [ -f "./node_modules/bower/bin/bower" ]
+  then
+    echo '       Bower already installed. Skipping...'
+  else
+    echo '-----> Installing Bower'
+    npm install bower
+  fi
+
+  echo '-----> Installing Bower Packages'
+  ./node_modules/bower/bin/bower install --allow-root
+else
+  echo '       bower.json missing. Nothing to install...'
+fi
+
+sleep 1
+
+echo '-----> Checking for Grunt deps'
+if [ -f "./Gruntfile.js" ]
+then
+  echo '       Gruntfile detected, handling deps...'
+
+  if [ -f "./node_modules/grunt/lib/grunt.js" ]
+  then
+    echo '       Grunt already installed. Skipping...'
+  else
+    echo '-----> Installing Grunt'
+    npm install grunt
+  fi
+
+  if [ -f "./node_modules/grunt-cli/bin/grunt" ]
+  then
+    echo '       Grunt-cli already installed. Skipping...'
+  else
+    echo '-----> Installing Grunt-cli'
+    npm install grunt-cli
+  fi
+
+  echo '-----> Running grunt tasks'
+  ./node_modules/grunt-cli/bin/grunt build
+else
+  echo '       No Gruntfile detected. Skipping...'
+fi
+
 EOF
 )
+
 
 id=$(docker run -d $IMAGE /bin/bash -c "$COMMAND")
 docker attach $id
 test $(docker wait $id) -eq 0
 docker commit $id $IMAGE > /dev/null
-echo "-----> Built Node"
+
+echo "-----> Built Node app"
